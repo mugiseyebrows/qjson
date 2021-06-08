@@ -150,7 +150,7 @@ namespace QJson {
   */
   class QJSON_EXPORT Serializer {
   public:
-    Serializer();
+    Serializer(bool escapeUnicode = true);
     ~Serializer();
 
      /**

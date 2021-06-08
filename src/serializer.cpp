@@ -24,6 +24,7 @@
 #include <QtCore/QDataStream>
 #include <QtCore/QStringList>
 #include <QtCore/QVariant>
+#include <QtCore/QTextCodec>
 
 // cmath does #undef for isnan and isinf macroses what can be defined in math.h
 #if defined(Q_OS_SYMBIAN) || defined(Q_OS_ANDROID) || defined(Q_OS_BLACKBERRY) || defined(Q_OS_SOLARIS)
@@ -47,21 +48,24 @@ using namespace QJson;
 
 class Serializer::SerializerPrivate {
   public:
-    SerializerPrivate() :
+    SerializerPrivate(bool escapeUnicode = true) :
       specialNumbersAllowed(false),
       indentMode(QJson::IndentNone),
-      doublePrecision(6) {
+      doublePrecision(6),
+      escapeUnicode(escapeUnicode)
+    {
         errorMessage.clear();
     }
     QString errorMessage;
     bool specialNumbersAllowed;
     IndentMode indentMode;
     int doublePrecision;
+    bool escapeUnicode;
 
-    QByteArray serialize( const QVariant &v, bool *ok, int indentLevel = 0);
+    QByteArray serialize( const QVariant &v, bool *ok, int indentLevel = 0 );
 
     static QByteArray buildIndent(int spaces);
-    static QByteArray escapeString( const QString& str );
+    static QByteArray escapeString( const QString& str, bool escapeUnicode );
     static QByteArray join( const QList<QByteArray>& list, const QByteArray& sep );
     static QByteArray join( const QList<QByteArray>& list, char sep );
 };
@@ -161,7 +165,7 @@ QByteArray Serializer::SerializerPrivate::serialize( const QVariant &v, bool *ok
       if ( !*ok ) {
         break;
       }
-      QByteArray key   = escapeString( it.key() );
+      QByteArray key   = escapeString( it.key(), escapeUnicode );
       QByteArray value = serializedValue.trimmed();
       if (indentMode == QJson::IndentCompact) {
         pairs << key + ':' + value;
@@ -218,7 +222,7 @@ QByteArray Serializer::SerializerPrivate::serialize( const QVariant &v, bool *ok
       if ( !*ok ) {
         break;
       }
-      QByteArray key   = escapeString( it.key() );
+      QByteArray key   = escapeString( it.key(), escapeUnicode );
       QByteArray value = serializedValue.trimmed();
       if (indentMode == QJson::IndentCompact) {
         pairs << key + ':' + value;
@@ -264,7 +268,7 @@ QByteArray Serializer::SerializerPrivate::serialize( const QVariant &v, bool *ok
     }
 
     if (( type == QVariant::String ) ||  ( type == QVariant::ByteArray )) { // a string or a byte array?
-      str += escapeString( v.toString() );
+      str += escapeString( v.toString(), escapeUnicode );
     } else if (( type == QVariant::Double) || ((QMetaType::Type)type == QMetaType::Float)) { // a double or a float?
       const double value = v.toDouble();
   #if defined _WIN32 && !defined(Q_OS_SYMBIAN)
@@ -312,7 +316,7 @@ QByteArray Serializer::SerializerPrivate::serialize( const QVariant &v, bool *ok
       str += QByteArray::number( v.value<int>() );
     } else if ( v.canConvert<QString>() ){ // can value be converted to string?
       // this will catch QDate, QDateTime, QUrl, ...
-      str += escapeString( v.toString() );
+      str += escapeString( v.toString(), escapeUnicode );
       //TODO: catch other values like QImage, QRect, ...
     } else {
       *ok = false;
@@ -343,11 +347,12 @@ QByteArray Serializer::SerializerPrivate::buildIndent(int spaces)
    return indent;
 }
 
-QByteArray Serializer::SerializerPrivate::escapeString( const QString& str )
+QByteArray Serializer::SerializerPrivate::escapeString( const QString& str, bool escapeUnicode )
 {
   QByteArray result;
   result.reserve(str.size() + 2);
   result.append('\"');
+  QTextCodec* utf8 = QTextCodec::codecForName("UTF-8");
   for (QString::const_iterator it = str.begin(), end = str.end(); it != end; ++it) {
     ushort unicode = it->unicode();
     switch ( unicode ) {
@@ -376,9 +381,13 @@ QByteArray Serializer::SerializerPrivate::escapeString( const QString& str )
         if ( unicode > 0x1F && unicode < 128 ) {
           result.append(static_cast<char>(unicode));
         } else {
-          char escaped[7];
-          qsnprintf(escaped, sizeof(escaped)/sizeof(char), "\\u%04x", unicode);
-          result.append(escaped);
+          if (escapeUnicode) {
+              char escaped[7];
+              qsnprintf(escaped, sizeof(escaped)/sizeof(char), "\\u%04x", unicode);
+              result.append(escaped);
+          } else {
+              result.append(utf8->fromUnicode(QChar(unicode)));
+          }
         }
     }
   }
@@ -386,8 +395,8 @@ QByteArray Serializer::SerializerPrivate::escapeString( const QString& str )
   return result;
 }
 
-Serializer::Serializer()
-  : d( new SerializerPrivate )
+Serializer::Serializer(bool escapeUnicode)
+  : d( new SerializerPrivate(escapeUnicode) )
 {
 }
 
